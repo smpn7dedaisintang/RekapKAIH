@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rekap Jurnal KAIH - SMPN 7 Dedai Sintang</title>
+   
+    <!-- 1. Styling (Tailwind CSS) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+   
+    <!-- 2. React Core -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+   
+    <!-- 3. Babel (Translator) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+   
+    <!-- 4. PapaParse (CSV Reader) -->
+    <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: { 50: '#eff6ff', 100: '#dbeafe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 900: '#1e3a8a' }
+                    }
+                },
+            },
+        }
+    </script>
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        body { background-color: #f8fafc; }
+        
+        /* Print Styling - Strict A4 Landscape Configuration */
+        @media print {
+            @page { 
+                size: A4 landscape; 
+                margin: 10mm; 
+            }
+            
+            /* CRITICAL FIX: Reset height & overflow for all parents */
+            html, body, #root, main { 
+                background-color: white !important; 
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
+                display: block !important;
+                position: relative !important;
+            }
+
+            /* Sembunyikan elemen UI nav dan filter */
+            nav, .no-print, .filters-container { display: none !important; }
+            
+            /* Reset container utama agar full width di kertas */
+            .print-container { 
+                display: block !important;
+                padding: 0 !important; 
+                margin: 0 !important; 
+                box-shadow: none !important; 
+                border: none !important; 
+                width: 100% !important;
+                max-width: none !important;
+                
+                /* Force positioning to ensure it starts at top of page */
+                position: absolute !important;
+                top: 0 !important;
+                left: 0 !important;
+            }
+            
+            .table-container { overflow: visible !important; }
+            
+            /* Tabel Print Friendly */
+            table { 
+                font-size: 11pt !important; /* Sedikit diperbesar agar terbaca */
+                width: 100% !important; 
+                border-collapse: collapse !important;
+            }
+            
+            th, td { 
+                border: 1px solid #000 !important; /* Border hitam solid */
+                padding: 6px 4px !important; 
+                color: #000 !important;
+            }
+
+            /* Header tabel abu-abu tetap tercetak */
+            thead tr { 
+                background-color: #f1f5f9 !important; 
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            /* Footer tanda tangan jangan terpotong */
+            .signature-section { 
+                page-break-inside: avoid; 
+                margin-top: 20mm !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="root"></div>
+
+    <!-- Error Handler Script -->
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            document.getElementById('root').innerHTML = `
+                <div class="p-4 bg-red-50 text-red-800 border border-red-200 rounded-lg max-w-lg mx-auto mt-10 text-center">
+                    <h3 class="font-bold">Terjadi Kesalahan</h3>
+                    <p class="text-sm mt-2">${message}</p>
+                </div>
+            `;
+        };
+    </script>
+
+    <!-- SCRIPT APLIKASI UTAMA -->
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- ICONS ---
+        const Icon = ({ path, className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{path}</svg>
+        );
+
+        const Icons = {
+            Activity: (p) => <Icon {...p} path={<polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />} />,
+            LayoutDashboard: (p) => <Icon {...p} path={<><rect x="3" y="3" width="7" height="9" /><rect x="14" y="3" width="7" height="5" /><rect x="14" y="12" width="7" height="9" /><rect x="3" y="16" width="7" height="5" /></>} />,
+            FileText: (p) => <Icon {...p} path={<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></>} />,
+            Printer: (p) => <Icon {...p} path={<><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></>} />,
+            RefreshCcw: (p) => <Icon {...p} path={<><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" /><path d="M16 16h5v5" /></>} />,
+            Table2: (p) => <Icon {...p} path={<><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><line x1="3" x2="21" y1="9" y2="9" /><line x1="3" x2="21" y1="15" y2="15" /><line x1="12" x2="12" y1="3" y2="21" /></>} />,
+            Download: (p) => <Icon {...p} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></>} />,
+            TrendingUp: (p) => <Icon {...p} path={<><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></>} />,
+            Users: (p) => <Icon {...p} path={<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>} />,
+            CheckCircle: (p) => <Icon {...p} path={<><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></>} />,
+            Calendar: (p) => <Icon {...p} path={<><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></>} />,
+            Clock: (p) => <Icon {...p} path={<><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>} />,
+            LogOut: (p) => <Icon {...p} path={<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></>} />,
+            Lock: (p) => <Icon {...p} path={<><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></>} />,
+        };
+
+        // --- KONFIGURASI ---
+        const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRTTSFb41vrQkvhlR48licDZiveRe10PRaaTenbo7QPFJjXAWHJFq4bZEx-2hXOjx18f5FA9KVVaqeE/pub?gid=745585149&single=true&output=csv';
+
+        const HABITS = [
+            'Bangun Pagi', 
+            'Beribadah', 
+            'Berolahraga', 
+            'Makan Sehat & Bergizi',
+            'Gemar Belajar', 
+            'Bermasyarakat', 
+            'Tidur Cepat'
+        ];
+
+        // --- HELPER FUNCTIONS ---
+        const MONTHS = [
+            "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+            "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+        ];
+        
+        const DAYS = Array.from({length: 31}, (_, i) => i + 1);
+
+        const WEEKS = [
+            { id: 1, label: 'Minggu 1 (Tgl 1-7)', start: 1, end: 7 },
+            { id: 2, label: 'Minggu 2 (Tgl 8-14)', start: 8, end: 14 },
+            { id: 3, label: 'Minggu 3 (Tgl 15-21)', start: 15, end: 21 },
+            { id: 4, label: 'Minggu 4 (Tgl 22-Akhir)', start: 22, end: 31 },
+        ];
+
+        // --- KOMPONEN UTAMA ---
+        function JurnalKAIHApp() {
+            // AUTH STATE
+            const [isLoggedIn, setIsLoggedIn] = useState(false);
+            const [loginUser, setLoginUser] = useState('');
+            const [loginPass, setLoginPass] = useState('');
+            const [loginError, setLoginError] = useState('');
+
+            // APP STATE
+            const [rawData, setRawData] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [activeTab, setActiveTab] = useState('rekap'); 
+            
+            // Filter States
+            const [selectedClass, setSelectedClass] = useState('');
+            const [selectedDay, setSelectedDay] = useState(new Date().getDate());
+            const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+            const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+            const [selectedWeekId, setSelectedWeekId] = useState(1);
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                if (loginUser === 'smpn7dedaioke' && loginPass === '123456') {
+                    setIsLoggedIn(true);
+                    setLoginError('');
+                } else {
+                    setLoginError('Username atau Password salah!');
+                }
+            };
+
+            const handleLogout = () => {
+                setIsLoggedIn(false);
+                setLoginUser('');
+                setLoginPass('');
+                setActiveTab('rekap');
+            };
+
+            const fetchData = () => {
+                setLoading(true);
+                Papa.parse(CSV_URL, {
+                    download: true, header: true, skipEmptyLines: true,
+                    complete: (results) => {
+                        try {
+                            const cleanData = results.data.map(row => ({
+                                timestamp: new Date(row['Timestamp'] || row['Tanggal'] || row['Date'] || new Date()),
+                                kelas: (row['Kelas'] || row['Class'] || 'Tidak Diketahui').toUpperCase().trim(),
+                                nama: (row['Nama Siswa'] || row['Nama'] || 'Siswa').toUpperCase().trim(),
+                                h1: checkBoolean(row, 'Bangun Pagi'),
+                                h2: checkBoolean(row, 'Beribadah'),
+                                h3: checkBoolean(row, 'Berolahraga'),
+                                h4: checkBoolean(row, 'Makan Sehat'),
+                                h5: checkBoolean(row, 'Gemar Belajar'),
+                                h6: checkBoolean(row, 'Bermasyarakat'),
+                                h7: checkBoolean(row, 'Tidur Cepat'),
+                            })).filter(item => item.kelas !== 'Tidak Diketahui' && !isNaN(item.timestamp.getTime()));
+                            
+                            setRawData(cleanData);
+                            // Set default class if available
+                            if(cleanData.length > 0) {
+                                const classes = [...new Set(cleanData.map(d => d.kelas))].sort();
+                                if (classes.length > 0) setSelectedClass(classes[0]);
+                            }
+                            setLoading(false);
+                        } catch (err) {
+                            console.error(err); setLoading(false);
+                        }
+                    },
+                    error: (err) => {
+                        console.error(err); 
+                        const dummy = generateDummyData();
+                        setRawData(dummy);
+                        setSelectedClass('7A');
+                        setLoading(false);
+                    }
+                });
+            };
+
+            const checkBoolean = (row, keyPart) => {
+                const key = Object.keys(row).find(k => k.toLowerCase().includes(keyPart.toLowerCase()));
+                if (!key) return false;
+                const val = row[key]?.toString().toLowerCase().trim();
+                return ['ya','yes','true','1','sudah','dilakukan'].includes(val);
+            };
+
+            const generateDummyData = () => {
+                const dummy = [];
+                const classes = ['7A', '7B', '8A', '8B'];
+                const names = ['Andi Saputra', 'Budi Santoso', 'Citra Lestari', 'Dewi Sartika', 'Eko Purnomo', 'Fajar Nugraha', 'Gita Gutawa', 'Hadi Wijaya', 'Indah Permata', 'Joko Susilo'];
+                const today = new Date();
+                
+                // Generate data for this month
+                for (let d = 1; d <= 28; d++) {
+                    classes.forEach(cls => {
+                        names.forEach(name => {
+                            if(Math.random() > 0.3) { // 70% chance filling data
+                                dummy.push({
+                                    timestamp: new Date(today.getFullYear(), today.getMonth(), d),
+                                    kelas: cls, 
+                                    nama: name,
+                                    h1: Math.random()>0.2, h2: Math.random()>0.1, h3: Math.random()>0.4, 
+                                    h4: Math.random()>0.2, h5: Math.random()>0.3, h6: Math.random()>0.2, 
+                                    h7: Math.random()>0.3,
+                                });
+                            }
+                        });
+                    });
+                }
+                return dummy;
+            };
+
+            useEffect(() => { 
+                if (isLoggedIn) {
+                    fetchData(); 
+                }
+            }, [isLoggedIn]);
+
+            // List Kelas Unik
+            const availableClasses = useMemo(() => {
+                return [...new Set(rawData.map(d => d.kelas))].sort();
+            }, [rawData]);
+
+            // --- PROCESSOR DATA UTAMA (Bisa untuk Bulanan & Mingguan) ---
+            const processData = (isWeekly = false) => {
+                if (!selectedClass) return [];
+
+                let weekRange = { start: 0, end: 32 }; // Default full month
+                if (isWeekly) {
+                    weekRange = WEEKS.find(w => w.id === parseInt(selectedWeekId)) || WEEKS[0];
+                }
+
+                // 1. Filter Data
+                const filtered = rawData.filter(d => 
+                    d.kelas === selectedClass &&
+                    d.timestamp.getMonth() === parseInt(selectedMonth) &&
+                    d.timestamp.getFullYear() === parseInt(selectedYear) &&
+                    d.timestamp.getDate() >= weekRange.start &&
+                    d.timestamp.getDate() <= weekRange.end
+                );
+
+                // 2. Group by Student
+                const studentGroups = {};
+                filtered.forEach(d => {
+                    if (!studentGroups[d.nama]) {
+                        studentGroups[d.nama] = { 
+                            nama: d.nama, 
+                            count: 0,
+                            h1: 0, h2: 0, h3: 0, h4: 0, h5: 0, h6: 0, h7: 0
+                        };
+                    }
+                    const g = studentGroups[d.nama];
+                    g.count++; 
+                    if(d.h1) g.h1++;
+                    if(d.h2) g.h2++;
+                    if(d.h3) g.h3++;
+                    if(d.h4) g.h4++;
+                    if(d.h5) g.h5++;
+                    if(d.h6) g.h6++;
+                    if(d.h7) g.h7++;
+                });
+
+                // 3. Convert & Sort
+                return Object.values(studentGroups)
+                    .map(s => ({
+                        ...s,
+                        totalCeklist: s.h1 + s.h2 + s.h3 + s.h4 + s.h5 + s.h6 + s.h7
+                    }))
+                    .sort((a, b) => a.nama.localeCompare(b.nama));
+            };
+
+            // Memoized Data Sets
+            const rekapBulananData = useMemo(() => processData(false), [rawData, selectedClass, selectedMonth, selectedYear]);
+            const rekapMingguanData = useMemo(() => processData(true), [rawData, selectedClass, selectedMonth, selectedYear, selectedWeekId]);
+
+            // --- PROCESSOR DATA HARIAN ---
+            const rekapHarianData = useMemo(() => {
+                if (!selectedClass) return [];
+                
+                // Filter tanggal spesifik
+                const filtered = rawData.filter(d => 
+                    d.kelas === selectedClass &&
+                    d.timestamp.getDate() === parseInt(selectedDay) &&
+                    d.timestamp.getMonth() === parseInt(selectedMonth) &&
+                    d.timestamp.getFullYear() === parseInt(selectedYear)
+                );
+
+                // Grouping (In case of duplicates, combine with OR logic)
+                const studentGroups = {};
+                filtered.forEach(d => {
+                    if (!studentGroups[d.nama]) {
+                        studentGroups[d.nama] = { 
+                            nama: d.nama, 
+                            h1: false, h2: false, h3: false, h4: false, h5: false, h6: false, h7: false
+                        };
+                    }
+                    const g = studentGroups[d.nama];
+                    if(d.h1) g.h1 = true;
+                    if(d.h2) g.h2 = true;
+                    if(d.h3) g.h3 = true;
+                    if(d.h4) g.h4 = true;
+                    if(d.h5) g.h5 = true;
+                    if(d.h6) g.h6 = true;
+                    if(d.h7) g.h7 = true;
+                });
+
+                return Object.values(studentGroups)
+                    .map(s => ({
+                        ...s,
+                        totalCeklist: [s.h1, s.h2, s.h3, s.h4, s.h5, s.h6, s.h7].filter(Boolean).length
+                    }))
+                    .sort((a, b) => a.nama.localeCompare(b.nama));
+            }, [rawData, selectedClass, selectedDay, selectedMonth, selectedYear]);
+
+
+            // STATISTIK DASHBOARD
+            const dashboardStats = useMemo(() => {
+                if (!selectedClass) return null;
+                // Use monthly data for dashboard
+                const filtered = rawData.filter(d => 
+                    d.kelas === selectedClass &&
+                    d.timestamp.getMonth() === parseInt(selectedMonth) &&
+                    d.timestamp.getFullYear() === parseInt(selectedYear)
+                );
+
+                if (filtered.length === 0) return null;
+                const totalEntries = filtered.length;
+                const uniqueStudents = new Set(filtered.map(d => d.nama)).size;
+                const habitCounts = [0,0,0,0,0,0,0]; 
+                filtered.forEach(d => {
+                    if (d.h1) habitCounts[0]++;
+                    if (d.h2) habitCounts[1]++;
+                    if (d.h3) habitCounts[2]++;
+                    if (d.h4) habitCounts[3]++;
+                    if (d.h5) habitCounts[4]++;
+                    if (d.h6) habitCounts[5]++;
+                    if (d.h7) habitCounts[6]++;
+                });
+
+                const habitStats = HABITS.map((label, idx) => ({
+                    label,
+                    count: habitCounts[idx],
+                    percent: Math.round((habitCounts[idx] / totalEntries) * 100) || 0
+                }));
+
+                const totalChecks = habitCounts.reduce((a,b) => a+b, 0);
+                const avgCompliance = Math.round((totalChecks / (totalEntries * 7)) * 100) || 0;
+
+                return { totalEntries, uniqueStudents, avgCompliance, habitStats };
+            }, [rawData, selectedClass, selectedMonth, selectedYear]);
+
+
+            // --- FUNGSI CETAK / PDF PINTAR ---
+            const handlePrint = (type) => {
+                const oldTitle = document.title;
+                let fileName = `Rekap_KAIH_${selectedClass}_${MONTHS[selectedMonth]}_${selectedYear}`;
+                if (type === 'weekly') {
+                    fileName += `_Minggu_${selectedWeekId}`;
+                } else if (type === 'daily') {
+                    fileName += `_Tgl_${selectedDay}`;
+                }
+                document.title = fileName;
+                window.print();
+                setTimeout(() => { document.title = oldTitle; }, 1000);
+            };
+
+            // --- TAMPILAN LOGIN ---
+            if (!isLoggedIn) {
+                return (
+                    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans animate-fade-in">
+                        <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-sm border border-slate-200">
+                            <div className="text-center mb-6">
+                                <div className="bg-brand-600 w-12 h-12 rounded-lg text-white flex items-center justify-center mx-auto mb-3 shadow-md">
+                                    <Icons.Lock className="w-6 h-6" />
+                                </div>
+                                <h1 className="text-xl font-bold text-slate-800">Akses Terbatas</h1>
+                                <p className="text-slate-500 text-xs mt-1">Sistem Rekap Jurnal KAIH<br/>SMPN 7 Dedai Sintang</p>
+                            </div>
+                            
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                {loginError && (
+                                    <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs text-center border border-red-100 animate-pulse">
+                                        {loginError}
+                                    </div>
+                                )}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wide">Username</label>
+                                    <input 
+                                        type="text" 
+                                        value={loginUser}
+                                        onChange={(e) => setLoginUser(e.target.value)}
+                                        className="w-full p-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none transition bg-slate-50 focus:bg-white"
+                                        placeholder="Masukkan username"
+                                        autoFocus
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wide">Password</label>
+                                    <input 
+                                        type="password" 
+                                        value={loginPass}
+                                        onChange={(e) => setLoginPass(e.target.value)}
+                                        className="w-full p-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none transition bg-slate-50 focus:bg-white"
+                                        placeholder="Masukkan password"
+                                    />
+                                </div>
+                                <button 
+                                    type="submit"
+                                    className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 rounded-lg transition shadow-md hover:shadow-lg transform active:scale-95 text-sm"
+                                >
+                                    Masuk ke Dashboard
+                                </button>
+                            </form>
+                            <div className="mt-6 text-center text-[10px] text-slate-400">
+                                &copy; 2026 SMPN 7 Dedai Sintang
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // --- TAMPILAN UTAMA (SETELAH LOGIN) ---
+            return (
+                <div className="font-sans text-slate-800 min-h-screen bg-slate-50 flex flex-col animate-fade-in">
+                   
+                    {/* NAVIGATION BAR */}
+                    <nav className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm px-4 py-2 no-print">
+                        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                                <div className="bg-brand-600 p-1.5 rounded-lg text-white"><Icons.Activity className="w-5 h-5" /></div>
+                                <div>
+                                    <h1 className="font-bold text-slate-900 text-lg leading-none">Rekap Jurnal KAIH</h1>
+                                    <p className="text-[10px] text-slate-500 font-medium">SMPN 7 Dedai Sintang</p>
+                                </div>
+                            </div>
+                           
+                            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                                <div className="flex bg-slate-100 p-1 rounded-lg flex-grow md:flex-grow-0 overflow-x-auto">
+                                    {[
+                                        { id: 'rekap', label: 'Bulanan', icon: Icons.FileText },
+                                        { id: 'rekapMingguan', label: 'Mingguan', icon: Icons.Calendar },
+                                        { id: 'rekapHarian', label: 'Harian', icon: Icons.Clock },
+                                        { id: 'dashboard', label: 'Dashboard', icon: Icons.LayoutDashboard },
+                                        { id: 'data', label: 'Data', icon: Icons.Table2 },
+                                    ].map(tab => (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => setActiveTab(tab.id)}
+                                            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md whitespace-nowrap transition ${
+                                                activeTab === tab.id
+                                                ? 'bg-white text-brand-700 shadow-sm'
+                                                : 'text-slate-500 hover:text-slate-700'
+                                            }`}
+                                        >
+                                            <tab.icon className="w-3 h-3" /> {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button 
+                                    onClick={handleLogout}
+                                    title="Keluar"
+                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                                >
+                                    <Icons.LogOut className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+                    </nav>
+
+                    {/* MAIN CONTENT */}
+                    <main className="flex-1 p-2 md:p-6 overflow-hidden max-w-7xl mx-auto w-full">
+                        
+                         {/* Filter Bar (Shared across tabs) */}
+                         <div className="bg-white p-4 rounded-lg border border-slate-200 mb-4 shadow-sm no-print filters-container flex flex-wrap gap-4 items-end">
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Pilih Kelas</label>
+                                <select 
+                                    value={selectedClass} 
+                                    onChange={(e) => setSelectedClass(e.target.value)}
+                                    className="w-32 text-sm p-2 bg-slate-50 border border-slate-200 rounded-md focus:ring-2 focus:ring-brand-500 outline-none"
+                                >
+                                    {availableClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bulan</label>
+                                <select 
+                                    value={selectedMonth} 
+                                    onChange={(e) => setSelectedMonth(e.target.value)}
+                                    className="w-32 text-sm p-2 bg-slate-50 border border-slate-200 rounded-md focus:ring-2 focus:ring-brand-500 outline-none"
+                                >
+                                    {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Tahun</label>
+                                <select 
+                                    value={selectedYear} 
+                                    onChange={(e) => setSelectedYear(e.target.value)}
+                                    className="w-24 text-sm p-2 bg-slate-50 border border-slate-200 rounded-md focus:ring-2 focus:ring-brand-500 outline-none"
+                                >
+                                    {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                            </div>
+                            
+                            {/* Filter Khusus Minggu */}
+                            {activeTab === 'rekapMingguan' && (
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Pilih Minggu</label>
+                                    <select 
+                                        value={selectedWeekId} 
+                                        onChange={(e) => setSelectedWeekId(e.target.value)}
+                                        className="w-40 text-sm p-2 bg-slate-50 border border-slate-200 rounded-md focus:ring-2 focus:ring-brand-500 outline-none"
+                                    >
+                                        {WEEKS.map(w => <option key={w.id} value={w.id}>{w.label}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                            {/* Filter Khusus Harian */}
+                            {activeTab === 'rekapHarian' && (
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Pilih Tanggal</label>
+                                    <select 
+                                        value={selectedDay} 
+                                        onChange={(e) => setSelectedDay(e.target.value)}
+                                        className="w-24 text-sm p-2 bg-slate-50 border border-slate-200 rounded-md focus:ring-2 focus:ring-brand-500 outline-none"
+                                    >
+                                        {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                            <div className="flex-grow"></div>
+                            
+                            {/* Tombol Cetak (Context Aware) */}
+                            {['rekap', 'rekapMingguan', 'rekapHarian'].includes(activeTab) && (
+                                <button 
+                                    onClick={() => handlePrint(activeTab === 'rekapMingguan' ? 'weekly' : activeTab === 'rekapHarian' ? 'daily' : 'monthly')}
+                                    className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2 transition shadow-sm"
+                                >
+                                    <Icons.Printer className="w-4 h-4" /> Cetak / PDF
+                                </button>
+                            )}
+                        </div>
+
+                        {/* TAB: REKAP BULANAN */}
+                        {activeTab === 'rekap' && (
+                            <div className="flex flex-col h-full animate-fade-in">
+                                <div className="bg-white shadow-lg p-8 mx-auto w-full max-w-[297mm] min-h-[210mm] print-container relative text-slate-900">
+                                    <div className="text-center mb-6">
+                                        <h2 className="text-xl font-bold uppercase tracking-wide">Rekapitulasi Jurnal KAIH (Bulanan)</h2>
+                                        <div className="flex justify-between mt-4 text-sm font-medium border-b-2 border-slate-800 pb-2">
+                                            <div className="text-left">
+                                                <p>Nama Sekolah : SMPN 7 Dedai Sintang</p>
+                                                <p>Kelas : {selectedClass || '-'}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p>Bulan : {MONTHS[selectedMonth]}</p>
+                                                <p>Tahun : {selectedYear}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-hidden">
+                                        <table className="w-full text-xs border-collapse border border-slate-800">
+                                            <thead>
+                                                <tr className="bg-slate-100 text-center font-bold">
+                                                    <th className="border border-slate-400 p-2 w-10" rowSpan="2">No</th>
+                                                    <th className="border border-slate-400 p-2" rowSpan="2">Nama Siswa</th>
+                                                    {HABITS.map((h, i) => (
+                                                        <th key={i} className="border border-slate-400 p-2 w-[8%]" rowSpan="1">{h}</th>
+                                                    ))}
+                                                    <th className="border border-slate-400 p-2 w-20 bg-slate-200" rowSpan="2">Jumlah Ceklist</th>
+                                                </tr>
+                                                <tr className="bg-slate-50 h-2">
+                                                    <th colSpan="7" className="border border-slate-400"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {loading ? (
+                                                    <tr><td colSpan="10" className="text-center p-8 italic text-slate-500">Memuat data...</td></tr>
+                                                ) : rekapBulananData.length === 0 ? (
+                                                    <tr><td colSpan="10" className="text-center p-8 italic text-slate-500">Tidak ada data untuk periode ini.</td></tr>
+                                                ) : (
+                                                    rekapBulananData.map((student, idx) => (
+                                                        <tr key={idx} className="text-center hover:bg-slate-50">
+                                                            <td className="border border-slate-300 p-1">{idx + 1}</td>
+                                                            <td className="border border-slate-300 p-1 text-left px-2 font-medium">{student.nama}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h1 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h2 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h3 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h4 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h5 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h6 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h7 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1 font-bold bg-slate-50">{student.totalCeklist}</td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                                {rekapBulananData.length > 0 && rekapBulananData.length < 15 && Array.from({ length: 15 - rekapBulananData.length }).map((_, i) => (
+                                                    <tr key={`empty-${i}`} className="h-8">
+                                                        <td colSpan="10" className="border border-slate-300 bg-slate-50"></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <div className="mt-12 flex justify-between text-sm signature-section">
+                                        <div className="text-center w-1/3">
+                                            <p className="font-bold mb-16">Mengetahui,<br/>Kepala Sekolah</p>
+                                            <p className="font-bold border-b border-black inline-block min-w-[150px]">( ....................................... )</p>
+                                            <p className="text-xs mt-1">NIP.</p>
+                                        </div>
+                                        <div className="text-center w-1/3">
+                                            <p className="mb-16">Dedai, ......................... {selectedYear}<br/>Guru Wali/Wali Kelas</p>
+                                            <p className="font-bold border-b border-black inline-block min-w-[150px]">( ....................................... )</p>
+                                            <p className="text-xs mt-1">NIP.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB: REKAP MINGGUAN */}
+                        {activeTab === 'rekapMingguan' && (
+                            <div className="flex flex-col h-full animate-fade-in">
+                                <div className="bg-white shadow-lg p-8 mx-auto w-full max-w-[297mm] min-h-[210mm] print-container relative text-slate-900">
+                                    <div className="text-center mb-6">
+                                        <h2 className="text-xl font-bold uppercase tracking-wide">Laporan Jurnal KAIH Mingguan</h2>
+                                        <div className="flex justify-between mt-4 text-sm font-medium border-b-2 border-slate-800 pb-2">
+                                            <div className="text-left">
+                                                <p>Nama Sekolah : SMPN 7 Dedai Sintang</p>
+                                                <p>Kelas : {selectedClass || '-'}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p>Bulan : {MONTHS[selectedMonth]} {selectedYear}</p>
+                                                <p className="text-brand-700 font-bold">{WEEKS.find(w => w.id == selectedWeekId)?.label}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-hidden">
+                                        <table className="w-full text-xs border-collapse border border-slate-800">
+                                            <thead>
+                                                <tr className="bg-blue-50 text-center font-bold">
+                                                    <th className="border border-slate-400 p-2 w-10" rowSpan="2">No</th>
+                                                    <th className="border border-slate-400 p-2" rowSpan="2">Nama Siswa</th>
+                                                    {HABITS.map((h, i) => (
+                                                        <th key={i} className="border border-slate-400 p-2 w-[8%]" rowSpan="1">{h}</th>
+                                                    ))}
+                                                    <th className="border border-slate-400 p-2 w-20 bg-blue-100" rowSpan="2">Total Minggu Ini</th>
+                                                </tr>
+                                                <tr className="bg-blue-50 h-2">
+                                                    <th colSpan="7" className="border border-slate-400"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {loading ? (
+                                                    <tr><td colSpan="10" className="text-center p-8 italic text-slate-500">Memuat data mingguan...</td></tr>
+                                                ) : rekapMingguanData.length === 0 ? (
+                                                    <tr><td colSpan="10" className="text-center p-8 italic text-slate-500">Tidak ada data pada minggu ini.</td></tr>
+                                                ) : (
+                                                    rekapMingguanData.map((student, idx) => (
+                                                        <tr key={idx} className="text-center hover:bg-slate-50">
+                                                            <td className="border border-slate-300 p-1">{idx + 1}</td>
+                                                            <td className="border border-slate-300 p-1 text-left px-2 font-medium">{student.nama}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h1 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h2 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h3 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h4 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h5 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h6 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h7 || '-'}</td>
+                                                            <td className="border border-slate-300 p-1 font-bold bg-blue-50">{student.totalCeklist}</td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                                 {rekapMingguanData.length > 0 && rekapMingguanData.length < 15 && Array.from({ length: 15 - rekapMingguanData.length }).map((_, i) => (
+                                                    <tr key={`empty-${i}`} className="h-8">
+                                                        <td colSpan="10" className="border border-slate-300 bg-slate-50"></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    <div className="mt-8 text-xs text-slate-500 italic">
+                                        * Angka menunjukkan jumlah hari siswa melakukan kebiasaan dalam rentang minggu tersebut.
+                                    </div>
+
+                                    <div className="mt-12 flex justify-between text-sm signature-section">
+                                        <div className="text-center w-1/3">
+                                            <p className="font-bold mb-16">Mengetahui,<br/>Kepala Sekolah</p>
+                                            <p className="font-bold border-b border-black inline-block min-w-[150px]">( ....................................... )</p>
+                                            <p className="text-xs mt-1">NIP.</p>
+                                        </div>
+                                        <div className="text-center w-1/3">
+                                            <p className="mb-16">Dedai, ......................... {selectedYear}<br/>Guru Wali/Wali Kelas</p>
+                                            <p className="font-bold border-b border-black inline-block min-w-[150px]">( ....................................... )</p>
+                                            <p className="text-xs mt-1">NIP.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB: REKAP HARIAN (BARU) */}
+                        {activeTab === 'rekapHarian' && (
+                            <div className="flex flex-col h-full animate-fade-in">
+                                <div className="bg-white shadow-lg p-8 mx-auto w-full max-w-[297mm] min-h-[210mm] print-container relative text-slate-900">
+                                    <div className="text-center mb-6">
+                                        <h2 className="text-xl font-bold uppercase tracking-wide">Laporan Jurnal KAIH Harian</h2>
+                                        <div className="flex justify-between mt-4 text-sm font-medium border-b-2 border-slate-800 pb-2">
+                                            <div className="text-left">
+                                                <p>Nama Sekolah : SMPN 7 Dedai Sintang</p>
+                                                <p>Kelas : {selectedClass || '-'}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p>Hari/Tanggal : {selectedDay} {MONTHS[selectedMonth]} {selectedYear}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-hidden">
+                                        <table className="w-full text-xs border-collapse border border-slate-800">
+                                            <thead>
+                                                <tr className="bg-purple-50 text-center font-bold">
+                                                    <th className="border border-slate-400 p-2 w-10" rowSpan="2">No</th>
+                                                    <th className="border border-slate-400 p-2" rowSpan="2">Nama Siswa</th>
+                                                    {HABITS.map((h, i) => (
+                                                        <th key={i} className="border border-slate-400 p-2 w-[8%]" rowSpan="1">{h}</th>
+                                                    ))}
+                                                    <th className="border border-slate-400 p-2 w-20 bg-purple-100" rowSpan="2">Total Hari Ini</th>
+                                                </tr>
+                                                <tr className="bg-purple-50 h-2">
+                                                    <th colSpan="7" className="border border-slate-400"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {loading ? (
+                                                    <tr><td colSpan="10" className="text-center p-8 italic text-slate-500">Memuat data harian...</td></tr>
+                                                ) : rekapHarianData.length === 0 ? (
+                                                    <tr><td colSpan="10" className="text-center p-8 italic text-slate-500">Tidak ada data masuk pada tanggal ini.</td></tr>
+                                                ) : (
+                                                    rekapHarianData.map((student, idx) => (
+                                                        <tr key={idx} className="text-center hover:bg-slate-50">
+                                                            <td className="border border-slate-300 p-1">{idx + 1}</td>
+                                                            <td className="border border-slate-300 p-1 text-left px-2 font-medium">{student.nama}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h1 ? '✓' : '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h2 ? '✓' : '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h3 ? '✓' : '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h4 ? '✓' : '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h5 ? '✓' : '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h6 ? '✓' : '-'}</td>
+                                                            <td className="border border-slate-300 p-1">{student.h7 ? '✓' : '-'}</td>
+                                                            <td className="border border-slate-300 p-1 font-bold bg-purple-50">{student.totalCeklist}</td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                                {rekapHarianData.length > 0 && rekapHarianData.length < 15 && Array.from({ length: 15 - rekapHarianData.length }).map((_, i) => (
+                                                    <tr key={`empty-${i}`} className="h-8">
+                                                        <td colSpan="10" className="border border-slate-300 bg-slate-50"></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    <div className="mt-8 text-xs text-slate-500 italic">
+                                        * Tanda ceklist (✓) menunjukkan siswa telah melakukan kebiasaan pada hari tersebut.
+                                    </div>
+
+                                    <div className="mt-12 flex justify-between text-sm signature-section">
+                                        <div className="text-center w-1/3">
+                                            <p className="font-bold mb-16">Mengetahui,<br/>Kepala Sekolah</p>
+                                            <p className="font-bold border-b border-black inline-block min-w-[150px]">( ....................................... )</p>
+                                            <p className="text-xs mt-1">NIP.</p>
+                                        </div>
+                                        <div className="text-center w-1/3">
+                                            <p className="mb-16">Dedai, ......................... {selectedYear}<br/>Guru Wali/Wali Kelas</p>
+                                            <p className="font-bold border-b border-black inline-block min-w-[150px]">( ....................................... )</p>
+                                            <p className="text-xs mt-1">NIP.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* DASHBOARD TAB (EXISTING) */}
+                        {activeTab === 'dashboard' && (
+                            <div className="animate-fade-in space-y-6">
+                                {!dashboardStats ? (
+                                    <div className="text-center p-12 bg-white rounded-lg border border-slate-200">
+                                        <p className="text-slate-500">Tidak ada data untuk filter Kelas / Bulan ini.</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* Row 1: Key Metrics */}
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+                                                <div className="p-3 bg-blue-100 text-blue-600 rounded-lg"><Icons.TrendingUp className="w-6 h-6"/></div>
+                                                <div>
+                                                    <p className="text-xs text-slate-500 font-bold uppercase">Total Entri Jurnal</p>
+                                                    <p className="text-2xl font-bold text-slate-800">{dashboardStats.totalEntries}</p>
+                                                </div>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+                                                <div className="p-3 bg-green-100 text-green-600 rounded-lg"><Icons.Users className="w-6 h-6"/></div>
+                                                <div>
+                                                    <p className="text-xs text-slate-500 font-bold uppercase">Siswa Aktif</p>
+                                                    <p className="text-2xl font-bold text-slate-800">{dashboardStats.uniqueStudents}</p>
+                                                </div>
+                                            </div>
+                                            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+                                                <div className="p-3 bg-purple-100 text-purple-600 rounded-lg"><Icons.CheckCircle className="w-6 h-6"/></div>
+                                                <div>
+                                                    <p className="text-xs text-slate-500 font-bold uppercase">Rata-rata Kepatuhan</p>
+                                                    <p className="text-2xl font-bold text-slate-800">{dashboardStats.avgCompliance}%</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Row 2: Habit Analysis Chart */}
+                                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                                            <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                                                <Icons.Activity className="w-5 h-5 text-brand-500"/> Analisis Kebiasaan Siswa
+                                            </h3>
+                                            <div className="space-y-4">
+                                                {dashboardStats.habitStats.map((stat, idx) => (
+                                                    <div key={idx} className="group">
+                                                        <div className="flex justify-between text-sm mb-1">
+                                                            <span className="font-medium text-slate-700">{stat.label}</span>
+                                                            <span className="text-slate-500">{stat.count} ({stat.percent}%)</span>
+                                                        </div>
+                                                        <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                                                            <div 
+                                                                className={`h-2.5 rounded-full transition-all duration-500 ${
+                                                                    stat.percent > 80 ? 'bg-green-500' : 
+                                                                    stat.percent > 50 ? 'bg-blue-500' : 'bg-yellow-500'
+                                                                }`} 
+                                                                style={{ width: `${stat.percent}%` }}
+                                                            ></div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        {/* DATA TAB (EXISTING) */}
+                        {activeTab === 'data' && (
+                            <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+                                <div className="p-3 bg-slate-50 border-b border-slate-200"><h3 className="font-bold text-sm">Data Masuk (50 Terakhir)</h3></div>
+                                <div className="table-container">
+                                    <table className="w-full text-xs text-left whitespace-nowrap">
+                                        <thead className="bg-white text-slate-500 uppercase border-b border-slate-200">
+                                            <tr>
+                                                <th className="px-3 py-2">Waktu</th>
+                                                <th className="px-3 py-2">Nama</th>
+                                                <th className="px-3 py-2">Kelas</th>
+                                                <th className="px-3 py-2">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {rawData.slice(0, 50).map((row, idx) => (
+                                                <tr key={idx} className="hover:bg-slate-50">
+                                                    <td className="px-3 py-2 text-slate-500">{row.timestamp.toLocaleDateString()}</td>
+                                                    <td className="px-3 py-2 font-medium text-slate-700">{row.nama}</td>
+                                                    <td className="px-3 py-2 text-brand-600">{row.kelas}</td>
+                                                    <td className="px-3 py-2 text-slate-500">
+                                                        {[row.h1, row.h2, row.h3, row.h4, row.h5, row.h6, row.h7].filter(Boolean).length} / 7
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<JurnalKAIHApp />);
+    </script>
+</body>
+</html>
